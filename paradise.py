@@ -1,6 +1,5 @@
 # paradise implementation in python
 
-from imgui_bundle import imgui, immapp
 import os
 
 
