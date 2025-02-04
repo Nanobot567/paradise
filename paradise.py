@@ -194,12 +194,23 @@ def paradiseParser(cmds=[]):
                     context.within.inventory.pop(index)
                 else:
                     toreturn.append("You do not see the target vessel.")
-            case "warp": # TODO: fix so it actually searches all parents for vessel
-                vessel, index = getVessel(context.within.children, arg)
+            case "warp":
+                def parentsSearch(parents, name):
+                    for p in parents:
+                        print(f"parent: {p}")
+                        for i, c in enumerate(p.children):
+                            print(f"child: {c}")
+                            if c.name == name:
+                                return c
+                        if p.name == name:
+                            return p
+                    return None 
+                    
+                vessel = parentsSearch(context.parents, arg)
 
                 if vessel:
                     context.within = vessel
-                    toreturn.append(f"You warped into the {vessel}.")
+                    toreturn.append({"text": f"You warped into the {vessel}.", "saycontext": True})
                 else:
                     toreturn.append("You do not see the target vessel.")
             case "note":
