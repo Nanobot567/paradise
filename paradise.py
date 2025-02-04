@@ -135,10 +135,14 @@ class Vessel:
                 self.program = data[k]
             elif k == "children":
                 for c in data[k]:
-                    self.children.append(Vessel("").imprt(c))
+                    v = Vessel("")
+                    v.imprt(c)
+                    self.children.append(v)
             elif k == "inventory": 
                 for i in data[k]:
-                    self.inventory.append(Vessel("").imprt(i))
+                    v = Vessel("")
+                    v.imprt(i)
+                    self.inventory.append(i)
 
     def export(self):
         children = []
