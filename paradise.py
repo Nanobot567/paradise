@@ -20,7 +20,12 @@ COMMANDS = {
     "move": "Move a visible vessel into another visible vessel.",
     # new commands
     "destroy": "Destroy a vessel.",
-    "context": "Get the current context.",
+    "observe": "Get the current context.",
+    "universe": "Create a new universe, with a vessel name as root, or warp to an existing universe.",
+    "heatdeath": "Destroy a universe.",
+    "multiverse": "Get a list of all universes.",
+    "import": "Import a universe JSON file.",
+    "export": "Export the current universe as a JSON file.",
     "exit": "Exit this universe."
 }
 
@@ -69,20 +74,20 @@ def getVessel(lst, name):
     return None, None
 
 class Context:
-    def __init__(self):
-        self.root = Vessel("library", note=HELP_NOTE)
-        self.within = self.root
+    def __init__(self, rootname="library", note=""):
+        self.root = Vessel(rootname, note=note)
+        self.host = self.root
         self.vessel = Vessel("ghost")
         self.parents = []
 
 class Vessel:
-    def __init__(self, name, note="", passive="", program="", children=[], inventory=[]):
+    def __init__(self, name, note="", passive="", program="", children=None, inventory=None):
         self.name = name
         self.note = note
         self.passive = passive
         self.program = program
-        self.children = children
-        self.inventory = inventory
+        self.children = children or []
+        self.inventory = inventory or []
 
     def clone(self):
         return Vessel(self.name, self.note, self.passive, self.program, self.children, self.inventory)
@@ -90,9 +95,10 @@ class Vessel:
     def __str__(self):
         return self.name
 
-context = Context()
 displaytext = ""
 meta = {"saycontext": True}
+universes = [Context("library", HELP_NOTE)]
+context = universes[0]
 
 def paradiseTokenizer(cmd=""):
     tokenized = []
@@ -130,7 +136,7 @@ def paradiseTokenizer(cmd=""):
     return tokenized
 
 def paradiseParser(cmds=[]):
-    global displaytext
+    global displaytext, context, universes
 
     toreturn = []
 
@@ -144,62 +150,60 @@ def paradiseParser(cmds=[]):
             case "PLAINTEXT":
                 toreturn.append(f'You said "{arg}".')
             case "create":
-                vessel = getVessel(context.within.children, arg)[0]
+                vessel = getVessel(context.host.children, arg)[0]
 
                 if vessel:
                     toreturn.append(f"You cannot create another {vessel}.")
                 else:
-                    context.within.children.append(Vessel(arg, children=[]))
+                    context.host.children.append(Vessel(arg, children=[]))
                     toreturn.append(f"You created the {arg}.")
             case "enter":
-                vessel = getVessel(context.within.children, arg)[0]
+                vessel = getVessel(context.host.children, arg)[0]
 
                 if vessel:
-                    context.parents.append(context.within)
-                    context.within = vessel
+                    context.parents.append(context.host)
+                    context.host = vessel
 
-                    toreturn.append({"text": f"You entered the {context.within}.", "saycontext": True})
+                    toreturn.append({"text": f"You entered the {context.host}.", "saycontext": True})
                 else:
                     toreturn.append("You do not see the target vessel.")
             case "leave":
                 if context.parents:
-                    oldname = context.within.name
-                    context.within = context.parents.pop()
+                    oldname = context.host.name
+                    context.host = context.parents.pop()
 
                     toreturn.append({"text": f"You left the {oldname}.", "saycontext": True})
                 else:
                     toreturn.append("You cannot leave a paradox.")
             case "become":
-                vessel, index = getVessel(context.within.children, arg)
+                vessel, index = getVessel(context.host.children, arg)
 
                 if vessel:
                     oldvessel = context.vessel
                     context.vessel = vessel
-                    context.within.children.pop(index)
-                    context.within.children.append(oldvessel)
+                    context.host.children.pop(index)
+                    context.host.children.append(oldvessel)
                     toreturn.append(f"You became the {vessel}.")
             case "take":
-                vessel, index = getVessel(context.within.children, arg)
+                vessel, index = getVessel(context.host.children, arg)
 
                 if vessel:
-                    context.within.inventory.append(vessel)
-                    context.within.children.pop(index)
+                    context.host.inventory.append(vessel)
+                    context.host.children.pop(index)
                 else:
                     toreturn.append("You do not see the target vessel.")
             case "drop":
-                vessel, index = getVessel(context.within.inventory, arg)
+                vessel, index = getVessel(context.host.inventory, arg)
 
                 if vessel:
-                    context.within.children.append(vessel)
-                    context.within.inventory.pop(index)
+                    context.host.children.append(vessel)
+                    context.host.inventory.pop(index)
                 else:
                     toreturn.append("You do not see the target vessel.")
             case "warp":
                 def parentsSearch(parents, name):
                     for p in parents:
-                        print(f"parent: {p}")
                         for i, c in enumerate(p.children):
-                            print(f"child: {c}")
                             if c.name == name:
                                 return c
                         if p.name == name:
@@ -209,40 +213,40 @@ def paradiseParser(cmds=[]):
                 vessel = parentsSearch(context.parents, arg)
 
                 if vessel:
-                    context.within = vessel
+                    context.host = vessel
                     toreturn.append({"text": f"You warped into the {vessel}.", "saycontext": True})
                 else:
                     toreturn.append("You do not see the target vessel.")
             case "note":
-                context.within.note = arg
+                context.host.note = arg
             case "pass":
-                context.within.passive = arg
+                context.host.passive = arg
             case "program":
-                context.within.program = arg
+                context.host.program = arg
             case "learn":
                 try:
                     toreturn.append(COMMANDS[cmdblock[1]])
                 except IndexError:
                     toreturn.append("learn topic not provided")
             case "use":
-                vessel, index = getVessel(context.within.children, arg)
+                vessel, index = getVessel(context.host.children, arg)
 
                 if vessel:
                     toreturn = toreturn + paradiseParser(paradiseTokenizer(vessel.program))
                 else:
                     toreturn.append("You do not see the target vessel.")
-            case "transform":
-                context.within.name = arg
+            case "transform": # TODO: check if current vessel is root, cmp name to universes. if exists already, fail
+                context.host.name = arg
                 toreturn.append(f"You transformed into a {arg}.")
             case "move":
-                origvessel, oindex = getVessel(context.within.children, arg)
+                origvessel, oindex = getVessel(context.host.children, arg)
 
                 if origvessel:
                     try:
-                        intovessel, index = getVessel(context.within.children, cmdblock[2])
+                        intovessel, index = getVessel(context.host.children, cmdblock[2])
 
                         if intovessel:
-                            intovessel.children.append(context.within.children.pop(oindex))
+                            intovessel.children.append(context.host.children.pop(oindex))
 
                             toreturn.append(f"You moved the {origvessel} into {intovessel}.")
                         else:
@@ -253,21 +257,71 @@ def paradiseParser(cmds=[]):
                     toreturn.append(f"Missing {origvessel}.")
 
             case "destroy":
-                vessel, index = getVessel(context.within.children, arg)
+                vessel, index = getVessel(context.host.children, arg)
 
                 if vessel:
-                    context.within.children.pop(index)
+                    context.host.children.pop(index)
                     toreturn.append(f"You destroyed the {vessel}.")
                 else:
                     toreturn.append("You do not see the target vessel.")
-            case "context":
+            case "observe":
                 toreturn.append({"saycontext": True})
+            case "universe":
+                ok = False
+
+                for i, u in enumerate(universes):
+                    if u.host.name == arg:
+                        context = universes[i]
+                        ok = True
+                        toreturn.append({"text": f"You warped into universe {context.host.name}.", "saycontext": True})
+                        break
+
+                if not ok:
+                    universes.append(Context(arg))
+                    context = universes[-1]
+                    toreturn.append({"text": f"You created and warped into universe {context.host.name}.", "saycontext": True})
+
+
+            case "heatdeath":
+                ok = False
+
+                for i, u in enumerate(universes):
+                    if u.host.name == arg:
+                        if u.host.name == context.host.name:
+                            toreturn.append("You cannot cause the heat death of your current universe.")
+                            ok = True
+                            break
+                        else:
+                            old = universes.pop(i)
+                            toreturn.append(f"You caused the heat death of universe {old.host.name}.")
+                            ok = True
+                            break
+
+                if not ok:
+                    toreturn.append(f"You do not see the universe {arg}.")
+            case "multiverse":
+
+                metas = []
+
+                for u in universes:
+                    currentText = ""
+
+                    if u.host.name == context.host.name:
+                        currentText = "*"
+
+                    metas.append(f"      > {u.host.name}{currentText} ({u.host.note})")
+
+                toreturn.append("You see universes:\n" + "\n".join(metas))
+            case "import":
+                pass
+            case "export":
+                pass
             case _:
                 pass
 
     return toreturn
 def paradise():
-    global displaytext, meta
+    global displaytext, meta, context
 
     os.system("clear")    
 
@@ -275,13 +329,13 @@ def paradise():
         canSayContext = type(meta) is dict and getValueFromKey(meta, "saycontext")
 
         if canSayContext:
-            print(f"you are a {context.vessel.name}, in the {context.within.name}.\n")
+            print(f"you are a {context.vessel.name}, in the {context.host.name}.\n")
 
-            if context.within.note:
-                print(context.within.note + "\n")
+            if context.host.note:
+                print(context.host.note + "\n")
 
-            if context.within.children:
-                for v in context.within.children:
+            if context.host.children:
+                for v in context.host.children:
                     print(f"   - enter the {v}")
                 print()
 
@@ -289,8 +343,8 @@ def paradise():
             print(displaytext + "\n")
 
         if canSayContext:
-            if context.within.inventory:
-                for i in context.within.inventory:
+            if context.host.inventory:
+                for i in context.host.inventory:
                     print(f"   - drop the {i}")
                 print()
 

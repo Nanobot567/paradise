@@ -20,4 +20,9 @@
 ## new commands
 
 - `destroy`: Destroy a vessel.
-- `context`: Get the current context.
+- `observe`: Get the current context.
+- `universe`: Create a new universe, with a vessel name as root, or warp to an existing universe.
+- `heatdeath`: Destroy a universe.
+- `multiverse`: Get a list of all universes.
+- `import`: Import a universe JSON file.
+- `export`: Export the current universe as a JSON file.
