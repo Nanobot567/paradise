@@ -1,7 +1,7 @@
 # paradise implementation in python
 
 import os
-
+import json
 
 COMMANDS = {
     "create": "Create a new vessel at your current location.",
@@ -73,12 +73,41 @@ def getVessel(lst, name):
 
     return None, None
 
+
 class Context:
     def __init__(self, rootname="library", note=""):
-        self.root = Vessel(rootname, note=note)
-        self.host = self.root
+        self.host = Vessel(rootname, note=note)
         self.vessel = Vessel("ghost")
         self.parents = []
+
+    def export(self):
+        parents = []
+        exp = {}
+
+        for p in self.parents:
+            parents.append(p.export())
+
+        return {
+            "host": self.host.export(),
+            "vessel": self.vessel.export(),
+            "parents": parents
+        }
+
+    def imprt(self, data):
+        self.host = Vessel("")
+        self.vessel = Vessel("")
+        self.parents = []
+
+        for k in data.keys():
+            if k == "host":
+                self.host.imprt(data[k])
+            elif k == "vessel":
+                self.vessel.imprt(data[k])
+            elif k == "parents":
+                for p in data[k]:
+                    v = Vessel("")
+                    v.imprt(p)
+                    self.parents.append(v)
 
 class Vessel:
     def __init__(self, name, note="", passive="", program="", children=None, inventory=None):
@@ -91,6 +120,55 @@ class Vessel:
 
     def clone(self):
         return Vessel(self.name, self.note, self.passive, self.program, self.children, self.inventory)
+
+    def imprt(self, data):
+        self.name, self.note, self.passive, self.program, self.children, self.inventory = "", "", "", "", [], []
+
+        for k in data.keys():
+            if k == "name":
+                self.name = data[k]
+            elif k == "note":
+                self.note = data[k]
+            elif k == "passive":
+                self.passive = data[k]
+            elif k == "program":
+                self.program = data[k]
+            elif k == "children":
+                for c in data[k]:
+                    self.children.append(Vessel("").imprt(c))
+            elif k == "inventory": 
+                for i in data[k]:
+                    self.inventory.append(Vessel("").imprt(i))
+
+    def export(self):
+        children = []
+        inventory = []
+        exp = {}
+
+        for c in self.children:
+            children.append(c.export())
+
+        for i in self.inventory:
+            inventory.append(i.export())
+
+        exp["name"] = self.name
+
+        if self.note:
+            exp["note"] = self.note
+
+        if self.passive:
+            exp["passive"] = self.passive
+
+        if self.program:
+            exp["program"] = self.program
+
+        if children:
+            exp["children"] = children
+        
+        if inventory:
+            exp["inventory"] = inventory
+
+        return exp
 
     def __str__(self):
         return self.name
@@ -148,7 +226,7 @@ def paradiseParser(cmds=[]):
             case "exit" | "quit":
                 quit()
             case "PLAINTEXT":
-                toreturn.append(f'You said "{arg}".')
+                toreturn.append(f'You said "{arg}".') # FIX: still removes a, to, the
             case "create":
                 vessel = getVessel(context.host.children, arg)[0]
 
@@ -184,20 +262,25 @@ def paradiseParser(cmds=[]):
                     context.host.children.pop(index)
                     context.host.children.append(oldvessel)
                     toreturn.append(f"You became the {vessel}.")
+                else:
+                    toreturn.append("You do not see the target vessel.")
+
             case "take":
                 vessel, index = getVessel(context.host.children, arg)
 
                 if vessel:
-                    context.host.inventory.append(vessel)
+                    context.vessel.inventory.append(vessel)
                     context.host.children.pop(index)
+                    toreturn.append(f"You took the {vessel}.")
                 else:
                     toreturn.append("You do not see the target vessel.")
             case "drop":
-                vessel, index = getVessel(context.host.inventory, arg)
+                vessel, index = getVessel(context.vessel.inventory, arg)
 
                 if vessel:
                     context.host.children.append(vessel)
-                    context.host.inventory.pop(index)
+                    context.vessel.inventory.pop(index)
+                    toreturn.append(f"You dropped the {vessel}.")
                 else:
                     toreturn.append("You do not see the target vessel.")
             case "warp":
@@ -213,10 +296,18 @@ def paradiseParser(cmds=[]):
                 vessel = parentsSearch(context.parents, arg)
 
                 if vessel:
+                    context.parents.append(context.host)
                     context.host = vessel
                     toreturn.append({"text": f"You warped into the {vessel}.", "saycontext": True})
                 else:
-                    toreturn.append("You do not see the target vessel.")
+                    vessel = getVessel(context.host.children, arg)[0]
+
+                    if vessel:
+                        context.parents.append(context.host)
+                        context.host = vessel
+                        toreturn.append({"text": f"You warped into the {vessel}.", "saycontext": True})
+                    else:
+                        toreturn.append("You do not see the target vessel.")
             case "note":
                 context.host.note = arg
             case "pass":
@@ -225,9 +316,18 @@ def paradiseParser(cmds=[]):
                 context.host.program = arg
             case "learn":
                 try:
-                    toreturn.append(COMMANDS[cmdblock[1]])
-                except IndexError:
-                    toreturn.append("learn topic not provided")
+                    toreturn.append(COMMANDS[arg])
+                except KeyError:
+
+                    text = "the available commands are: "
+
+                    text += ", ".join(list(COMMANDS.keys())[:-1])
+
+                    text += ", and " + list(COMMANDS.keys())[-1]
+
+                    text += ". to see the documentation for a specific command, use \"learn to move\"."
+
+                    toreturn.append(text)
             case "use":
                 vessel, index = getVessel(context.host.children, arg)
 
@@ -235,9 +335,22 @@ def paradiseParser(cmds=[]):
                     toreturn = toreturn + paradiseParser(paradiseTokenizer(vessel.program))
                 else:
                     toreturn.append("You do not see the target vessel.")
-            case "transform": # TODO: check if current vessel is root, cmp name to universes. if exists already, fail
-                context.host.name = arg
-                toreturn.append(f"You transformed into a {arg}.")
+            case "transform": # FIX
+                if arg:
+                    ok = True
+
+                    if len(context.parents) == 0:
+                        for u in universes:
+                            if u.host.name == arg:
+                                toreturn.append(f"You cannot make another universe {arg}.")
+                                ok = False
+                                break
+
+                    if ok: 
+                        context.vessel.name = arg
+                        toreturn.append(f"You transformed into a {arg}.")
+                else:
+                    toreturn.append("You cannot transform into nothing.")
             case "move":
                 origvessel, oindex = getVessel(context.host.children, arg)
 
@@ -313,9 +426,15 @@ def paradiseParser(cmds=[]):
 
                 toreturn.append("You see universes:\n" + "\n".join(metas))
             case "import":
-                pass
+                with open(arg, "r") as f:
+                    context.imprt(json.loads(f.read()))
+
+                toreturn.append(f"You imported universe {context.host.name}")
             case "export":
-                pass
+                with open(context.host.name + ".json", "w+") as f:
+                    f.write(json.dumps(context.export()))
+
+                toreturn.append(f"You exported universe {context.host.name}")
             case _:
                 pass
 
@@ -343,8 +462,8 @@ def paradise():
             print(displaytext + "\n")
 
         if canSayContext:
-            if context.host.inventory:
-                for i in context.host.inventory:
+            if context.vessel.inventory:
+                for i in context.vessel.inventory:
                     print(f"   - drop the {i}")
                 print()
 
