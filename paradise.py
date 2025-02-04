@@ -191,9 +191,12 @@ def paradiseTokenizer(cmd=""):
 
         args = []
 
-        for p in preprocessed:
-            if p not in IGNORE_COMMANDS:
-                args.append(p)
+        if preprocessed[0] in ["note", "pass", "program"]:
+            args = preprocessed
+        else:
+            for p in preprocessed:
+                if p not in IGNORE_COMMANDS:
+                    args.append(p)
 
         if args[0] in COMMANDS.keys():
             cmd = args.pop(0)
@@ -433,7 +436,7 @@ def paradiseParser(cmds=[]):
                 with open(arg, "r") as f:
                     context.imprt(json.loads(f.read()))
 
-                toreturn.append(f"You imported universe {context.host.name}")
+                toreturn.append({"text": f"You imported universe {context.host.name}", "saycontext": True})
             case "export":
                 with open(context.host.name + ".json", "w+") as f:
                     f.write(json.dumps(context.export()))
