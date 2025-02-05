@@ -3,6 +3,8 @@
 import os
 import json
 
+import lis
+
 COMMANDS = {
     "create": "Create a new vessel at your current location.",
     "enter": "Enter a visible vessel.",
@@ -25,15 +27,12 @@ COMMANDS = {
     "heatdeath": "Destroy a universe.",
     "multiverse": "Get a list of all universes.",
     "import": "Import a universe JSON file.",
-    "export": "Export the current universe as a JSON file.",
-    "exit": "Exit this universe."
+    "export": "Export the current universe as a JSON file. All parent vessels from the current entered one will be ignored.",
+    "exit": "Exit this universe.",
+    "lisp": ""
 }
 
-IGNORE_COMMANDS = [
-    "a",
-    "to",
-    "the"
-]
+IGNORE_COMMANDS = ["a", "to", "the"]
 
 HELP_NOTE = "welcome to the library, you can edit this message with the {note} action. to begin, make a new vessel with {create}. type {learn} to see the list of commands."
 
@@ -43,6 +42,7 @@ def getValueFromKey(d, k, retIfNone=None):
         return d[k]
     except KeyError:
         return retIfNone
+
 
 # merge d1 into d2 (replace)
 def mergeDicts(d1, d2):
@@ -54,11 +54,11 @@ def mergeDicts(d1, d2):
 
     return d2
 
+
 def untilStopperChar(args, index):
     stopperChars = ["&"]
 
     for i in range(index, len(args)):
-
         arg = args[i]
 
         if arg in stopperChars:
@@ -66,12 +66,37 @@ def untilStopperChar(args, index):
 
     return args[index:], len(args)
 
+
 def getVessel(lst, name):
     for i, l in enumerate(lst):
         if name == str(l):
-            return l, i
+            return str(l), i
 
     return None, None
+
+
+def split_with_delims(sentence, separator=" ", lparen="(", rparen=")"):
+    nb_brackets = 0
+    sentence = sentence.strip(separator)
+
+    l = [0]
+    for i, c in enumerate(sentence):
+        if c == lparen:
+            nb_brackets += 1
+        elif c == rparen:
+            nb_brackets -= 1
+        elif c == separator and nb_brackets == 0:
+            l.append(i)
+
+        if nb_brackets < 0:
+            raise Exception("Syntax error")
+
+    l.append(len(sentence))
+
+    if nb_brackets > 0:
+        raise Exception("Syntax error")
+
+    return [sentence[i:j].strip(separator) for i, j in zip(l, l[1:])]
 
 
 class Context:
@@ -80,17 +105,17 @@ class Context:
         self.vessel = Vessel("ghost")
         self.parents = []
 
-    def export(self):
+    def export(self, saveParents=False):
         parents = []
-        exp = {}
 
-        for p in self.parents:
-            parents.append(p.export())
+        if saveParents:
+            for p in self.parents:
+                parents.append(p.export())
 
         return {
             "host": self.host.export(),
             "vessel": self.vessel.export(),
-            "parents": parents
+            "parents": parents,
         }
 
     def imprt(self, data):
@@ -109,8 +134,11 @@ class Context:
                     v.imprt(p)
                     self.parents.append(v)
 
+
 class Vessel:
-    def __init__(self, name, note="", passive="", program="", children=None, inventory=None):
+    def __init__(
+        self, name, note="", passive="", program="", children=None, inventory=None
+    ):
         self.name = name
         self.note = note
         self.passive = passive
@@ -119,10 +147,24 @@ class Vessel:
         self.inventory = inventory or []
 
     def clone(self):
-        return Vessel(self.name, self.note, self.passive, self.program, self.children, self.inventory)
+        return Vessel(
+            self.name,
+            self.note,
+            self.passive,
+            self.program,
+            self.children,
+            self.inventory,
+        )
 
     def imprt(self, data):
-        self.name, self.note, self.passive, self.program, self.children, self.inventory = "", "", "", "", [], []
+        (
+            self.name,
+            self.note,
+            self.passive,
+            self.program,
+            self.children,
+            self.inventory,
+        ) = "", "", "", "", [], []
 
         for k in data.keys():
             if k == "name":
@@ -138,7 +180,7 @@ class Vessel:
                     v = Vessel("")
                     v.imprt(c)
                     self.children.append(v)
-            elif k == "inventory": 
+            elif k == "inventory":
                 for i in data[k]:
                     v = Vessel("")
                     v.imprt(i)
@@ -168,7 +210,7 @@ class Vessel:
 
         if children:
             exp["children"] = children
-        
+
         if inventory:
             exp["inventory"] = inventory
 
@@ -177,6 +219,7 @@ class Vessel:
     def __str__(self):
         return self.name
 
+
 displaytext = ""
 meta = {"saycontext": True}
 universes = [Context("library", HELP_NOTE)]
@@ -184,10 +227,14 @@ context = universes[0]
 
 def paradiseTokenizer(cmd=""):
     tokenized = []
-    commands = cmd.split("&")
+
+    if cmd.strip().startswith("program"):
+        commands = [cmd]
+    else:
+        commands = cmd.split("&")
 
     for c in commands:
-        preprocessed = c.strip().split(" ")
+        preprocessed = split_with_delims(c.strip())
 
         args = []
 
@@ -220,12 +267,18 @@ def paradiseTokenizer(cmd=""):
 
     return tokenized
 
+
 def paradiseParser(cmds=[]):
     global displaytext, context, universes
 
     toreturn = []
 
     for cmdblock in cmds:
+
+        for i, v in enumerate(cmdblock):
+            if v.startswith("(") and v.endswith(")"):
+                cmdblock[i] = str(lis.eval(lis.parse(v)))
+
         cmd = cmdblock[0]
         arg = cmdblock[1]
 
@@ -233,7 +286,7 @@ def paradiseParser(cmds=[]):
             case "exit" | "quit":
                 quit()
             case "PLAINTEXT":
-                toreturn.append(f'You said "{arg}".') # FIX: still removes a, to, the
+                toreturn.append(f'You said "{arg}".')  # FIX: still removes a, to, the
             case "create":
                 vessel = getVessel(context.host.children, arg)[0]
 
@@ -249,7 +302,10 @@ def paradiseParser(cmds=[]):
                     context.parents.append(context.host)
                     context.host = vessel
 
-                    toreturn.append({"text": f"You entered the {context.host}.", "saycontext": True})
+                    toreturn.append({
+                        "text": f"You entered the {context.host}.",
+                        "saycontext": True,
+                    })
                 else:
                     toreturn.append("You do not see the target vessel.")
             case "leave":
@@ -257,7 +313,10 @@ def paradiseParser(cmds=[]):
                     oldname = context.host.name
                     context.host = context.parents.pop()
 
-                    toreturn.append({"text": f"You left the {oldname}.", "saycontext": True})
+                    toreturn.append({
+                        "text": f"You left the {oldname}.",
+                        "saycontext": True,
+                    })
                 else:
                     toreturn.append("You cannot leave a paradox.")
             case "become":
@@ -291,6 +350,7 @@ def paradiseParser(cmds=[]):
                 else:
                     toreturn.append("You do not see the target vessel.")
             case "warp":
+
                 def parentsSearch(parents, name):
                     for p in parents:
                         for i, c in enumerate(p.children):
@@ -298,21 +358,27 @@ def paradiseParser(cmds=[]):
                                 return c
                         if p.name == name:
                             return p
-                    return None 
-                    
+                    return None
+
                 vessel = parentsSearch(context.parents, arg)
 
                 if vessel:
                     context.parents.append(context.host)
                     context.host = vessel
-                    toreturn.append({"text": f"You warped into the {vessel}.", "saycontext": True})
+                    toreturn.append({
+                        "text": f"You warped into the {vessel}.",
+                        "saycontext": True,
+                    })
                 else:
                     vessel = getVessel(context.host.children, arg)[0]
 
                     if vessel:
                         context.parents.append(context.host)
                         context.host = vessel
-                        toreturn.append({"text": f"You warped into the {vessel}.", "saycontext": True})
+                        toreturn.append({
+                            "text": f"You warped into the {vessel}.",
+                            "saycontext": True,
+                        })
                     else:
                         toreturn.append("You do not see the target vessel.")
             case "note":
@@ -325,35 +391,38 @@ def paradiseParser(cmds=[]):
                 try:
                     toreturn.append(COMMANDS[arg])
                 except KeyError:
-
                     text = "the available commands are: "
 
                     text += ", ".join(list(COMMANDS.keys())[:-1])
 
                     text += ", and " + list(COMMANDS.keys())[-1]
 
-                    text += ". to see the documentation for a specific command, use \"learn to move\"."
+                    text += '. to see the documentation for a specific command, use "learn to move".'
 
                     toreturn.append(text)
             case "use":
                 vessel, index = getVessel(context.host.children, arg)
 
                 if vessel:
-                    toreturn = toreturn + paradiseParser(paradiseTokenizer(vessel.program))
+                    toreturn = toreturn + paradiseParser(
+                        paradiseTokenizer(vessel.program)
+                    )
                 else:
                     toreturn.append("You do not see the target vessel.")
-            case "transform": # FIX
+            case "transform":  # FIX
                 if arg:
                     ok = True
 
                     if len(context.parents) == 0:
                         for u in universes:
                             if u.host.name == arg:
-                                toreturn.append(f"You cannot make another universe {arg}.")
+                                toreturn.append(
+                                    f"You cannot make another universe {arg}."
+                                )
                                 ok = False
                                 break
 
-                    if ok: 
+                    if ok:
                         context.vessel.name = arg
                         toreturn.append(f"You transformed into a {arg}.")
                 else:
@@ -363,12 +432,18 @@ def paradiseParser(cmds=[]):
 
                 if origvessel:
                     try:
-                        intovessel, index = getVessel(context.host.children, cmdblock[2])
+                        intovessel, index = getVessel(
+                            context.host.children, cmdblock[2]
+                        )
 
                         if intovessel:
-                            intovessel.children.append(context.host.children.pop(oindex))
+                            intovessel.children.append(
+                                context.host.children.pop(oindex)
+                            )
 
-                            toreturn.append(f"You moved the {origvessel} into {intovessel}.")
+                            toreturn.append(
+                                f"You moved the {origvessel} into {intovessel}."
+                            )
                         else:
                             toreturn.append(f"Missing {intovessel}.")
                     except IndexError:
@@ -393,14 +468,19 @@ def paradiseParser(cmds=[]):
                     if u.host.name == arg:
                         context = universes[i]
                         ok = True
-                        toreturn.append({"text": f"You warped into universe {context.host.name}.", "saycontext": True})
+                        toreturn.append({
+                            "text": f"You warped into universe {context.host.name}.",
+                            "saycontext": True,
+                        })
                         break
 
                 if not ok:
                     universes.append(Context(arg))
                     context = universes[-1]
-                    toreturn.append({"text": f"You created and warped into universe {context.host.name}.", "saycontext": True})
-
+                    toreturn.append({
+                        "text": f"You created and warped into universe {context.host.name}.",
+                        "saycontext": True,
+                    })
 
             case "heatdeath":
                 ok = False
@@ -408,19 +488,22 @@ def paradiseParser(cmds=[]):
                 for i, u in enumerate(universes):
                     if u.host.name == arg:
                         if u.host.name == context.host.name:
-                            toreturn.append("You cannot cause the heat death of your current universe.")
+                            toreturn.append(
+                                "You cannot cause the heat death of your current universe."
+                            )
                             ok = True
                             break
                         else:
                             old = universes.pop(i)
-                            toreturn.append(f"You caused the heat death of universe {old.host.name}.")
+                            toreturn.append(
+                                f"You caused the heat death of universe {old.host.name}."
+                            )
                             ok = True
                             break
 
                 if not ok:
                     toreturn.append(f"You do not see the universe {arg}.")
             case "multiverse":
-
                 metas = []
 
                 for u in universes:
@@ -436,20 +519,27 @@ def paradiseParser(cmds=[]):
                 with open(arg, "r") as f:
                     context.imprt(json.loads(f.read()))
 
-                toreturn.append({"text": f"You imported universe {context.host.name}", "saycontext": True})
+                toreturn.append({
+                    "text": f"You imported universe {context.host.name}",
+                    "saycontext": True,
+                })
             case "export":
                 with open(context.host.name + ".json", "w+") as f:
                     f.write(json.dumps(context.export()))
 
                 toreturn.append(f"You exported universe {context.host.name}")
+            case "lisp":
+                print()
             case _:
                 pass
 
     return toreturn
+
+
 def paradise():
     global displaytext, meta, context
 
-    os.system("clear")    
+    os.system("clear")
 
     while True:
         canSayContext = type(meta) is dict and getValueFromKey(meta, "saycontext")
@@ -462,7 +552,12 @@ def paradise():
 
             if context.host.children:
                 for v in context.host.children:
-                    print(f"   - enter the {v}")
+                    passive = ""
+
+                    if v.passive:
+                        passive = " (" + v.passive + ")"
+
+                    print(f"   - enter the {v}{passive}")
                 print()
 
         if displaytext:
@@ -471,7 +566,12 @@ def paradise():
         if canSayContext:
             if context.vessel.inventory:
                 for i in context.vessel.inventory:
-                    print(f"   - drop the {i}")
+                    passive = ""
+
+                    if i.passive:
+                        passive = " (" + i.passive + ")"
+
+                    print(f"   - drop the {i}{passive}")
                 print()
 
         out = paradiseParser(paradiseTokenizer(input("> ")))
