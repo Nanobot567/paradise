@@ -2,6 +2,7 @@
 
 import os
 import json
+from datetime import datetime
 
 import lis
 
@@ -28,13 +29,26 @@ COMMANDS = {
     "multiverse": "Get a list of all universes.",
     "import": "Import a universe JSON file.",
     "export": "Export the current universe as a JSON file. All parent vessels from the current entered one will be ignored.",
-    "exit": "Exit this universe.",
-    "lisp": ""
+    "exit": "Exit this universe."
 }
 
 IGNORE_COMMANDS = ["a", "to", "the"]
 
 HELP_NOTE = "welcome to the library, you can edit this message with the {note} action. to begin, make a new vessel with {create}. type {learn} to see the list of commands."
+
+PARADISE_LISP_ENV = lis.standard_env()
+
+# TODO: figure out how to run function from lisp
+# def getTime():
+#     return datetime.now().strftime("%H:%M:%S")
+
+# def getDate():
+#     return datetime.now().strftime("%Y-%m-%d")
+
+# PARADISE_LISP_ENV.update({
+#     "time": getTime,
+#     "date": getDate 
+# })
 
 
 def getValueFromKey(d, k, retIfNone=None):
@@ -70,7 +84,7 @@ def untilStopperChar(args, index):
 def getVessel(lst, name):
     for i, l in enumerate(lst):
         if name == str(l):
-            return str(l), i
+            return l, i
 
     return None, None
 
@@ -97,6 +111,20 @@ def split_with_delims(sentence, separator=" ", lparen="(", rparen=")"):
         raise Exception("Syntax error")
 
     return [sentence[i:j].strip(separator) for i, j in zip(l, l[1:])]
+
+def eval_inline_lisp(text):
+    start = text.find('(')
+    if start == -1:
+        return text
+    
+    end = text.find(')')
+    if end == -1:
+        return text
+        
+    content = text[start + 1:end]
+    processed = str(lis.eval(lis.parse(content), PARADISE_LISP_ENV))
+    
+    return text[:start] + '(' + processed + ')' + text[end + 1:]
 
 
 class Context:
@@ -276,8 +304,8 @@ def paradiseParser(cmds=[]):
     for cmdblock in cmds:
 
         for i, v in enumerate(cmdblock):
-            if v.startswith("(") and v.endswith(")"):
-                cmdblock[i] = str(lis.eval(lis.parse(v)))
+            if cmdblock[0] not in ["pass"]:
+                cmdblock[i] = eval_inline_lisp(v)
 
         cmd = cmdblock[0]
         arg = cmdblock[1]
@@ -555,7 +583,7 @@ def paradise():
                     passive = ""
 
                     if v.passive:
-                        passive = " (" + v.passive + ")"
+                        passive = " (" + eval_inline_lisp(v.passive) + ")"
 
                     print(f"   - enter the {v}{passive}")
                 print()
@@ -569,7 +597,7 @@ def paradise():
                     passive = ""
 
                     if i.passive:
-                        passive = " (" + i.passive + ")"
+                        passive = " (" + eval_inline_lisp(i.passive) + ")"
 
                     print(f"   - drop the {i}{passive}")
                 print()

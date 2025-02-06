@@ -25,4 +25,4 @@
 - `heatdeath`: Destroy a universe.
 - `multiverse`: Get a list of all universes.
 - `import`: Import a universe JSON file.
-- `export`: Export the current universe as a JSON file.
+- `export`: Export the current universe as a JSON file. All parent vessels from the current entered one will be ignored.
